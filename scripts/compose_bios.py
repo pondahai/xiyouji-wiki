@@ -34,6 +34,20 @@ def fix_links(bio):
     return BROKEN_LINK.sub(r"[[\1]]", bio)
 
 
+ALIAS2CANON = {a: c for c, al in CHARACTERS.items() for a in al}
+
+
+def remap_alias_links(bio):
+    """模型偶爾用別名連結([[觀音菩薩]]),改寫成 [[正名|別名]] 以免斷連結"""
+    def repl(m):
+        target, _, label = m.group(1).partition("|")
+        canon = ALIAS2CANON.get(target)
+        if canon is None:
+            return m.group(0)
+        return f"[[{canon}|{label or target}]]"
+    return re.sub(r"\[\[([^\]]+)\]\]", repl, bio)
+
+
 def is_degenerate(bio):
     """人物關係節同一名字出現 >3 次即視為重複迴圈退化"""
     rel = bio.split("### 人物關係")[-1]
@@ -124,7 +138,7 @@ def main():
                 # 保底:整行剔除仍含碎念的條目
                 bio = "\n".join(ln for ln in bio.splitlines() if not META_RE.search(ln))
                 print("  still meta, lines dropped", flush=True)
-            bio = fix_links(bio)
+            bio = remap_alias_links(fix_links(bio))
         except Exception as e:
             print(f"  FAILED {canon}: {e}", flush=True)
             continue
