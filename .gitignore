@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/facts/*.err
+.obsidian/
+site/
+extract_facts.log
