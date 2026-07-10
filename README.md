@@ -7,7 +7,8 @@
 以 map-reduce 方式「全文閱讀」原著後生成,**每條事蹟都附回數出處,可回溯查證**。
 
 - **Obsidian vault**(`vault/`):`[[人名]]` 點擊跳轉,graph view 看人物關係網
-- **靜態網站**:push 後由 CI 自動從 vault 重建部署 GitHub Pages;
+- **靜態網站**:線上直接看 <https://pondahai.github.io/xiyouji-wiki/>,
+  push 後由 CI 自動從 vault 重建部署 GitHub Pages;
   也可本地跑 `python scripts/build_html.py` 後開 `site/index.html` 離線瀏覽
 
 ## 與三國版的差異
