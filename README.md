@@ -11,6 +11,12 @@
   push 後由 CI 自動從 vault 重建部署 GitHub Pages;
   也可本地跑 `python scripts/build_html.py` 後開 `site/index.html` 離線瀏覽
 
+## 緣起
+
+系列第一作是[三國演義 Wiki](https://github.com/pondahai/sanguo-wiki),完整開發歷程
+(踩過的坑與學到的事)都記錄在該版 README;之後每一作都仿造前一作
+(三國 → 西遊 → 封神 → 水滸),方法論相同,不再重複記錄。
+
 ## 與三國版的差異
 
 本 repo 是 sanguo-wiki 的 **config 化重構版**:所有跟「哪本書」有關的設定
