@@ -29,7 +29,7 @@ PENALTY = {"repetition_penalty": 1.08, "presence_penalty": 0.5}
 
 BASE_TOKENS = 8000    # 起始 budget
 MAX_TOKENS = 24000    # 重試上限;每次截斷就加倍
-ENDINGS = "。）」』.!?！？"  # 正常收尾的標點
+ENDINGS = "。）)」』】.!?！？"  # 正常收尾的標點
 SFN = re.compile(r"(?:\s*\{\{sfn\|[^}]*\}\})+\s*$")  # 行尾出處標記,判斷收尾時先剝掉
 
 
