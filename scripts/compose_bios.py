@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 """Reduce 階段:彙整 data/facts/ 的逐回事實,為每個人物撰寫有出處的生平。
 覆寫 vault/人物/*.md 的「生平」節;可重跑,已含 facts 標記的頁自動跳過。
-用法: python compose_bios.py [人數上限,預設全部]
+
+用法:
+  python compose_bios.py [人數上限,預設全部]
+  python compose_bios.py --only 孫悟空 唐僧    # 指定人物,無視已生成標記,強制重寫
+  python compose_bios.py --redo-truncated     # 掃出被 max_tokens 截斷的頁面重寫
+
+事實多的人物(孫悟空、唐僧)輸出很長,budget 不足時模型會被硬切在句子中間,
+所以這裡以 finish_reason 判斷截斷並自動加大 budget 重試。
 """
 import json
 import re
@@ -19,6 +26,11 @@ MARKER = "<!-- source: map-reduce facts -->"
 SECTION = re.compile(r"(## 生平\n).*?(\n## 出場章回)", re.S)
 NAME = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 PENALTY = {"repetition_penalty": 1.08, "presence_penalty": 0.5}
+
+BASE_TOKENS = 8000    # 起始 budget
+MAX_TOKENS = 24000    # 重試上限;每次截斷就加倍
+ENDINGS = "。）」』.!?！？"  # 正常收尾的標點
+SFN = re.compile(r"(?:\s*\{\{sfn\|[^}]*\}\})+\s*$")  # 行尾出處標記,判斷收尾時先剝掉
 
 
 META_RE = re.compile(r"清單未|故不列入|故不寫|推測基於|修正：|受限於清單|若清單")
@@ -81,6 +93,26 @@ def dedupe_relations(bio):
     return head + sep + "\n".join(fixed)
 
 
+def looks_truncated(bio):
+    """文字面的截斷徵兆:缺人物關係節(輸出在事蹟中途就斷了),
+    或事蹟節最後一條停在句中(沒有收尾標點)。
+    人物關係節的條目常以 [[名字]] 收尾、本來就沒有句號,故只看事蹟節。"""
+    if not bio.strip():
+        return True
+    head, sep, _ = bio.partition("### 人物關係")
+    if not sep:
+        return True
+    lines = [SFN.sub("", ln).rstrip() for ln in head.splitlines() if ln.strip()]
+    lines = [ln for ln in lines if ln]
+    return bool(lines) and lines[-1][-1] not in ENDINGS
+
+
+def current_bio(text):
+    """取出頁面中已生成的生平內容(不含 ## 標題與 marker)"""
+    m = SECTION.search(text)
+    return m.group(0)[len(m.group(1)):-len(m.group(2))].replace(MARKER, "").strip() if m else ""
+
+
 def load_facts():
     """人物 -> [(回數, 事實), ...]"""
     per_char = defaultdict(list)
@@ -111,27 +143,55 @@ def make_prompt(canon, aliases, facts):
     )
 
 
+def generate(prompt, temperature=0.2):
+    """撞到 max_tokens 就加倍 budget 重試,避免長人物被硬切在句子中間"""
+    budget = BASE_TOKENS
+    while True:
+        bio, finish = call_llm(prompt, max_tokens=budget, temperature=temperature,
+                               extra=PENALTY, return_finish=True)
+        if finish != "length" and not looks_truncated(bio):
+            return bio
+        if budget >= MAX_TOKENS:
+            print(f"  WARN: 仍被截斷(budget={budget}, finish={finish}),輸出可能不完整", flush=True)
+            return bio
+        budget = min(budget * 2, MAX_TOKENS)
+        print(f"  truncated (finish={finish}), retrying with max_tokens={budget} ...", flush=True)
+
+
 def main():
-    limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10**9
+    argv = sys.argv[1:]
+    only, redo_truncated = None, False
+    if "--redo-truncated" in argv:
+        redo_truncated = True
+        argv.remove("--redo-truncated")
+    if "--only" in argv:
+        i = argv.index("--only")
+        only = set(argv[i + 1:])
+        argv = argv[:i]
+    limit = int(argv[0]) if argv else 10**9
     per_char = load_facts()
     ranked = sorted(per_char, key=lambda c: -len(per_char[c]))[:limit]
     done = skipped = 0
     for canon in ranked:
+        if only is not None and canon not in only:
+            continue
         page = VAULT / "人物" / f"{canon}.md"
         if not page.exists():
             continue
         text = page.read_text(encoding="utf-8")
-        if MARKER in text:
-            skipped += 1
-            continue
+        if MARKER in text and only is None:
+            if not (redo_truncated and looks_truncated(current_bio(text))):
+                skipped += 1
+                continue
+            print(f"  {canon}: 偵測到截斷,重新生成", flush=True)
         facts = per_char[canon]
         print(f"composing {canon} ({len(facts)} facts) ...", flush=True)
         try:
             prompt = make_prompt(canon, CHARACTERS[canon], facts)
-            bio = call_llm(prompt, max_tokens=4000, extra=PENALTY)
+            bio = generate(prompt)
             if is_degenerate(bio) or has_meta(bio) or find_simplified(bio):
                 print("  degenerate/meta, retrying ...", flush=True)
-                bio = call_llm(prompt, max_tokens=4000, temperature=0.7, extra=PENALTY)
+                bio = generate(prompt, temperature=0.7)
             if is_degenerate(bio):
                 bio = dedupe_relations(bio)
                 print("  still degenerate, deduped", flush=True)
